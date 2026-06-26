@@ -56,13 +56,13 @@ function formatNeed(need: string): string {
 function formatPattern(pattern: string): string {
   if (!pattern) return "—";
   const map: Record<string, string> = {
-    EFFORT_REWARD_STRAIN: "ناترازی تلاش و پاداش",
-    OVERLOAD_RECOVERY_DEFICIT: "فشار زیاد و کمبود بازیابی",
+    EFFORT_REWARD_STRAIN: "تلاش زیاد، پاداش کم",
+    OVERLOAD_RECOVERY_DEFICIT: "فشار زیاد همراه با استراحت ناکافی",
     CONTROL_UNCERTAINTY_STRAIN: "فشار کنترل و عدم‌قطعیت",
     THREAT_ANXIETY_STRAIN: "فشار تهدید و اضطراب",
-    RELATIONAL_SUPPORT_DEFICIT: "کمبود حمایت رابطه‌ای",
+    RELATIONAL_SUPPORT_DEFICIT: "کمبود حمایت اطرافیان",
     MEANING_VALUE_MISALIGNMENT: "ناهماهنگی معنا و ارزش‌ها",
-    RESOURCE_DEPLETION: "تحلیل‌رفتن منابع",
+    RESOURCE_DEPLETION: "کم‌شدن انرژی و منابع",
     NO_CLEAR_PATTERN: "الگوی غالبی دیده نمی‌شود",
     LOW_STRESS_MAINTENANCE: "حفظ وضعیت کم‌استرس",
     LOW_STRESS_WITH_RESOURCE_GAP: "کم‌استرس با تمرکز پیشگیرانه",
@@ -168,49 +168,139 @@ function humanSpeedFlag(flag: string): string {
   return flag.toLowerCase().replace(/_/g, " ");
 }
 
+// Convert Latin digits in a string to Persian digits.
+function toPersianDigits(s: string): string {
+  const fa = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+  return s.replace(/[0-9]/g, (d) => fa[Number(d)]);
+}
+
+// Format an age group like "35-44" or "35–44" → "۳۵ تا ۴۴ سال"; "65+" → "۶۵ سال به بالا".
+function formatAgeGroup(raw: string): string {
+  if (!raw) return "";
+  const v = raw.trim();
+  const plus = v.match(/^(\d+)\s*\+$/);
+  if (plus) return `${toPersianDigits(plus[1])} سال به بالا`;
+  const range = v.match(/^(\d+)\s*[-–—]\s*(\d+)$/);
+  if (range) return `${toPersianDigits(range[1])} تا ${toPersianDigits(range[2])} سال`;
+  const under = v.match(/^under\s*(\d+)$/i);
+  if (under) return `زیر ${toPersianDigits(under[1])} سال`;
+  return toPersianDigits(v);
+}
+
 // ── Translate English context values that arrive from Airtable ──────────────────
+const ROLE_TOKENS: Record<string, string> = {
+  "parent": "والد",
+  "caregiver": "مراقب",
+  "student": "دانشجو",
+  "working professional": "شاغل",
+  "professional": "شاغل",
+  "manager": "مدیر",
+  "team lead": "سرپرست تیم",
+  "manager / team lead": "مدیر / سرپرست تیم",
+  "leader": "مدیر / سرپرست تیم",
+  "healthcare professional": "کادر درمان",
+  "healthcare worker": "کادر درمان",
+  "teacher": "معلم",
+  "educator": "مدرس",
+  "entrepreneur": "کارآفرین",
+  "freelancer": "فریلنسر",
+  "athlete": "ورزشکار",
+  "performer": "اجراگر",
+  "self-employed": "خویش‌فرما",
+  "currently not working": "در حال حاضر شاغل نیست",
+  "retired": "بازنشسته",
+  "unemployed": "در حال حاضر شاغل نیست",
+  "other": "سایر",
+};
+
+// Full-string role mappings (exact combos take priority over token-splitting).
+const ROLE_FULL: Record<string, string> = {
+  "parent / caregiver": "والد / مراقب",
+  "caregiver / parent": "والد / مراقب",
+  "manager / team lead": "مدیر / سرپرست تیم",
+  "teacher / educator": "معلم / مدرس",
+  "entrepreneur / freelancer": "کارآفرین / فریلنسر",
+  "athlete / performer": "ورزشکار / اجراگر",
+};
 
 function translateRole(raw: string): string {
   if (!raw) return "";
+  const key = raw.trim().toLowerCase();
+  if (ROLE_FULL[key]) return ROLE_FULL[key];
+  if (ROLE_TOKENS[key]) return ROLE_TOKENS[key];
+  // Handle any "A / B" or "A/B" combination by translating each side.
+  if (key.includes("/")) {
+    const parts = raw.split("/").map((p) => p.trim());
+    const translated = parts.map((p) => ROLE_TOKENS[p.toLowerCase()] ?? p);
+    return translated.join(" / ");
+  }
+  return raw;
+}
+
+const GOAL_MAP: Record<string, string> = {
+  "reduce overwhelm": "کم کردن احساس غرق‌شدن",
+  "feel calmer": "آرام‌تر شدن",
+  "sleep better": "خواب بهتر",
+  "think more clearly": "روشن‌تر فکر کردن",
+  "improve focus and productivity": "تمرکز و کارایی بیشتر",
+  "feel emotionally stronger": "توان عاطفی بیشتر",
+  "improve work-life balance": "تعادل بهتر بین کار و زندگی",
+  "improve work life balance": "تعادل بهتر بین کار و زندگی",
+  "feel more motivated": "انگیزه بیشتر",
+  "understand myself better": "شناخت بهتر خودم",
+  "improve relationships": "بهبود رابطه‌ها",
+  "manage stress": "مدیریت استرس",
+  "build resilience": "تقویت تاب‌آوری",
+  "maintain my wellbeing": "حفظ سلامت و تعادل فعلی",
+  "feel less anxious": "کاهش اضطراب",
+  "more energy": "انرژی بیشتر",
+  "better focus": "تمرکز بهتر",
+  "nothing": "فعلاً چیزی",
+};
+
+function translateGoal(raw: string): string {
+  if (!raw) return "";
+  return GOAL_MAP[raw.trim().toLowerCase()] ?? raw;
+}
+
+// Evidence-level badge values arriving from Airtable (A/B/MODERATE/EVIDENCE_INFORMED…).
+function translateEvidence(raw: string): string {
+  if (!raw) return "";
   const map: Record<string, string> = {
-    "working professional": "فرد شاغل",
-    "healthcare professional": "کادر درمان",
-    "healthcare worker": "کادر درمان",
-    "student": "دانشجو",
-    "manager": "مدیر",
-    "leader": "مدیر / رهبر تیم",
-    "teacher": "معلم",
-    "educator": "معلم / مربی",
-    "parent": "والد",
-    "caregiver": "مراقب",
-    "self-employed": "خویش‌فرما",
-    "freelancer": "فریلنسر",
-    "entrepreneur": "کارآفرین",
-    "retired": "بازنشسته",
-    "unemployed": "بدون شغل فعلی",
-    "other": "سایر",
+    "high": "قوی",
+    "moderate": "متوسط",
+    "medium": "متوسط",
+    "low": "محدود",
+    "evidence_informed": "مبتنی بر شواهد",
+    "evidence informed": "مبتنی بر شواهد",
+    "a": "قوی",
+    "b": "متوسط",
+    "c": "محدود",
   };
   return map[raw.trim().toLowerCase()] ?? raw;
 }
 
-function translateGoal(raw: string): string {
-  if (!raw) return "";
+// Safe exact-substring replacements for stray English words inside any displayed string.
+function normalizeText(s: string): string {
+  if (!s) return s;
+  return s
+    .replace(/overwhelm/gi, "احساس غرق‌شدن")
+    .replace(/\bunsupported\b/gi, "بدون پشتوانه کافی");
+}
+
+// Remap the Persian score-label strings that arrive from Airtable to simpler native phrasing.
+function translateMetricLabel(raw: string): string {
+  if (!raw) return raw;
   const map: Record<string, string> = {
-    "feel calmer": "احساس آرامش بیشتر",
-    "feel more motivated": "احساس انگیزه بیشتر",
-    "reduce overwhelm": "کاهش حس از پا افتادن",
-    "improve work-life balance": "بهبود تعادل کار و زندگی",
-    "improve work life balance": "بهبود تعادل کار و زندگی",
-    "sleep better": "خواب بهتر",
-    "more energy": "انرژی بیشتر",
-    "better focus": "تمرکز بهتر",
-    "manage stress": "مدیریت استرس",
-    "build resilience": "تقویت تاب‌آوری",
-    "maintain my wellbeing": "حفظ سلامت و تعادل فعلی",
-    "feel less anxious": "کاهش اضطراب",
-    "nothing": "هدف خاصی ندارم",
+    "بار استرس خفیف": "فشار فعلی خفیف",
+    "بار استرس متوسط": "فشار فعلی متوسط",
+    "بار استرس بالا": "فشار فعلی بالا",
+    "بار استرس کم": "فشار فعلی کم",
+    "نشانه فشار فرساینده و خطر کاهش بازیابی": "نشانه فشار طولانی‌مدت و کمبود استراحت",
+    "نشانه خفیف فشار فرساینده و خطر کاهش بازیابی": "نشانه خفیف فشار طولانی‌مدت و کمبود استراحت",
+    "نشانه‌ی فشار فرساینده": "نشانه فشار طولانی‌مدت",
   };
-  return map[raw.trim().toLowerCase()] ?? raw;
+  return map[raw.trim()] ?? raw;
 }
 
 function translateRecharge(raw: string): string {
@@ -228,34 +318,30 @@ function translateRecharge(raw: string): string {
 // ── Glossary: fluent Persian definitions, shown on hover/tap ────────────────────
 
 const GLOSSARY: Record<string, string> = {
-  "بار استرس فعلی":
-    "میزان فشاری که هم‌اکنون بر شما وارد است؛ ترکیبی از مطالبات، نشانه‌های استرس و اثر آن بر عملکرد روزمره. عددی بین ۰ تا ۱۰۰ که بالاتر یعنی فشار بیشتر.",
-  "نشانه فشار فرساینده و خطر کاهش بازیابی":
-    "نشانه‌ای پیشگیرانه از فرسودگی؛ یعنی فشار طولانی همراه با بازیابی ناکافی که در بلندمدت می‌تواند انرژی و توان شما را تحلیل ببرد. این یک تشخیص بالینی نیست.",
-  "بار مطالبات":
+  "میزان فشار فعلی":
+    "میزان فشاری که هم‌اکنون بر شما وارد است؛ ترکیبی از مسئولیت‌ها، نشانه‌های استرس و اثر آن بر زندگی روزمره. عددی بین ۰ تا ۱۰۰ که بالاتر یعنی فشار بیشتر.",
+  "نشانه فشار طولانی‌مدت و کمبود استراحت":
+    "نشانه‌ای پیشگیرانه از خستگی فرسایشی؛ یعنی فشار طولانی همراه با استراحت ناکافی که در بلندمدت می‌تواند انرژی و توان شما را کم کند. این یک تشخیص پزشکی نیست.",
+  "نشانه خفیف فشار طولانی‌مدت و کمبود استراحت":
+    "نشانه‌ای پیشگیرانه و خفیف از خستگی فرسایشی؛ یعنی فشار طولانی همراه با استراحت ناکافی که بهتر است از همین حالا به آن توجه کنید. این یک تشخیص پزشکی نیست.",
+  "سنگینی مسئولیت‌ها":
     "حجم کارها، مسئولیت‌ها و انتظاراتی که هم‌زمان بر دوش شماست.",
-  "فشار ارزیابی":
-    "فشاری که از نحوه‌ی ارزیابی ذهنی شما از موقعیت می‌آید؛ مثل حس کنترل کم یا پیش‌بینی‌ناپذیری.",
-  "بار نشانه‌ها":
+  "فشار ذهنی و نگرانی":
+    "فشاری که از نگاه و ارزیابی ذهنی شما به وضعیت می‌آید؛ مثل حس کنترل کم یا پیش‌بینی‌ناپذیری.",
+  "نشانه‌های فشار":
     "شدت نشانه‌های استرس که تجربه می‌کنید؛ مثل تنش، نگرانی، خستگی یا بی‌خوابی.",
-  "اثر کارکردی":
-    "میزانی که استرس بر توان شما در انجام کارهای روزمره، کار و تصمیم‌گیری اثر گذاشته است.",
-  "تحلیل منابع":
-    "میزان کاهش منابع درونی و بیرونی شما؛ یعنی انرژی، حمایت یا توان مقابله‌ای که در دسترس کمتری قرار گرفته است.",
-  "خطر تداوم":
-    "نشانه‌ای از اینکه این فشار چقدر ممکن است طولانی‌مدت یا ادامه‌دار باشد، نه فقط یک وضعیت گذرا.",
-  "فرسودگی":
-    "حالت تخلیه‌ی عمیق انرژی جسمی و ذهنی که در اثر فشار طولانی و بازیابی ناکافی ایجاد می‌شود.",
-  "کمبود بازیابی":
-    "نبود فرصت یا کیفیت کافی برای بازگشت به حالت عادی پس از فشار؛ مثل استراحت، خواب یا فاصله گرفتن واقعی از کار.",
-  "فشار مطالبات":
-    "فشاری که از زیاد بودن هم‌زمان کارها و انتظارات ناشی می‌شود.",
-  "ناترازی تلاش/پاداش":
-    "فاصله میان آنچه می‌گذارید و آنچه به‌صورت قدردانی، حمایت یا نتیجه بازمی‌گردد.",
-  "شکاف نیازها":
-    "فاصله میان آنچه برای شما مهم است و میزانی که در حال حاضر برآورده می‌شود؛ بیشتر یعنی نیاز برآورده‌نشده‌تر.",
-  "منابع":
-    "ظرفیت‌هایی که به شما در مقابله کمک می‌کنند: توان مقابله، انرژی جسمی، حمایت اجتماعی، ساختار زندگی و حس معنا. کمتر یعنی در حال حاضر کم‌دسترس‌تر.",
+  "اثر روی زندگی روزمره":
+    "میزانی که استرس روی توان شما در انجام کارهای روزمره، کار و تصمیم‌گیری اثر گذاشته است.",
+  "فشار ناشی از کمبود منابع":
+    "میزان کم‌شدن منابع درونی و بیرونی شما؛ یعنی انرژی، حمایت یا توانی که در دسترس کمتری قرار گرفته است.",
+  "ریسک ادامه‌دار شدن":
+    "نشانه‌ای از اینکه این فشار چقدر ممکن است طولانی یا ادامه‌دار باشد، نه فقط یک وضعیت گذرا.",
+  "خستگی فرسایشی":
+    "حالت تخلیه‌ی عمیق انرژی جسمی و ذهنی که از فشار طولانی و استراحت ناکافی ایجاد می‌شود.",
+  "کمبود استراحت واقعی":
+    "نبود فرصت یا کیفیت کافی برای برگشتن به حالت عادی پس از فشار؛ مثل استراحت، خواب یا فاصله‌ گرفتن واقعی از کار.",
+  "تلاش زیاد، پاداش کم":
+    "فاصله میان آنچه می‌گذارید و آنچه به‌صورت قدردانی، حمایت یا نتیجه به شما بازمی‌گردد.",
 };
 
 function Term({ label }: { label: string }) {
@@ -274,13 +360,13 @@ function Term({ label }: { label: string }) {
 // ── Pattern palette ───────────────────────────────────────────────────────────
 
 const PATTERNS: Record<string, { label: string; color: string; bg: string }> = {
-  OVERLOAD_RECOVERY_DEFICIT: { label: "فشار زیاد / کمبود بازیابی", color: "#B45309", bg: "#FEF3C7" },
+  OVERLOAD_RECOVERY_DEFICIT: { label: "فشار زیاد همراه با استراحت ناکافی", color: "#B45309", bg: "#FEF3C7" },
   CONTROL_UNCERTAINTY_STRAIN: { label: "فشار کنترل / عدم‌قطعیت", color: "#1D4ED8", bg: "#EFF6FF" },
   THREAT_ANXIETY_STRAIN: { label: "فشار تهدید / اضطراب", color: "#9F1239", bg: "#FFF1F2" },
-  RELATIONAL_SUPPORT_DEFICIT: { label: "فشار حمایت رابطه‌ای", color: "#7C3AED", bg: "#F5F3FF" },
+  RELATIONAL_SUPPORT_DEFICIT: { label: "کمبود حمایت اطرافیان", color: "#7C3AED", bg: "#F5F3FF" },
   MEANING_VALUE_MISALIGNMENT: { label: "ناهماهنگی معنا / ارزش", color: "#0F766E", bg: "#F0FDFA" },
-  RESOURCE_DEPLETION: { label: "تحلیل‌رفتن منابع", color: "#92400E", bg: "#FEF3C7" },
-  EFFORT_REWARD_STRAIN: { label: "ناترازی تلاش / پاداش", color: "#B91C1C", bg: "#FEF2F2" },
+  RESOURCE_DEPLETION: { label: "کم‌شدن انرژی و منابع", color: "#92400E", bg: "#FEF3C7" },
+  EFFORT_REWARD_STRAIN: { label: "تلاش زیاد، پاداش کم", color: "#B91C1C", bg: "#FEF2F2" },
   LOW_STRESS_MAINTENANCE: { label: "کم‌استرس — حفظ وضعیت", color: "#15803D", bg: "#F0FDF4" },
   MIXED_STRESS_PATTERN: { label: "الگوی استرس ترکیبی", color: "#6B7280", bg: "#F9FAFB" },
   NO_CLEAR_PATTERN: { label: "الگوی ترکیبی", color: "#6B7280", bg: "#F9FAFB" },
@@ -527,14 +613,21 @@ function RecoCard({
         </div>
       </div>
       <div className="r-reco-badges">
-        {evidenceLevel && <span className="r-badge">شواهد {evidenceLevel}</span>}
+        {evidenceLevel &&
+          (() => {
+            const ev = translateEvidence(evidenceLevel);
+            const isInformed =
+              evidenceLevel.trim().toLowerCase() === "evidence_informed" ||
+              evidenceLevel.trim().toLowerCase() === "evidence informed";
+            return <span className="r-badge">{isInformed ? ev : `شواهد ${ev}`}</span>;
+          })()}
         {difficulty && <span className="r-badge">{difficulty}</span>}
         {timeFrame && <span className="r-badge">⏱ {timeFrame}</span>}
       </div>
       {why && <div className="r-reco-why">{why}</div>}
       {how && (
         <>
-          <div className="r-reco-how-label">چگونه انجامش دهیم</div>
+          <div className="r-reco-how-label">روش انجام</div>
           <div className="r-reco-how">{how}</div>
         </>
       )}
@@ -686,7 +779,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
   if (!data) return <ErrorView message="داده‌ای در دسترس نیست." />;
 
   const f = data.fields;
-  const get = (key: string) => asString(f[key]);
+  const get = (key: string) => normalizeText(asString(f[key]));
 
   // ── Pattern ──
   const rawPattern = get("primary_pattern (text)") || get("primary_pattern") || "";
@@ -745,7 +838,6 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
   const aiDeeperText = get("ai_deeper_context");
   const aiNarrativeFit = get("ai_narrative_fit_note");
   const aiCautionNote = get("ai_caution_note");
-  const aiGrounding = get("ai_scientific_grounding_check");
 
   // ── Context ──
   const roleContext = translateRole(get("role_context"));
@@ -787,19 +879,18 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
   // ── Scores ──
   const stressLoadScore = safeNum(f["stress_load_score_100"]);
   const stressLoadLevel = get("stress_load_level_100");
-  const stressLoadLabel = get("stress_load_label_100") || stressLoadLevel;
+  const stressLoadLabel = translateMetricLabel(get("stress_load_label_100") || stressLoadLevel);
   const stressZone = get("stress_zone");
   const burnoutRiskScore = safeNum(f["burnout_risk_score_100"]);
   const burnoutRiskLevel = get("burnout_risk_level_100");
-  const burnoutRiskLabel = get("burnout_risk_label_100") || burnoutRiskLevel;
+  const burnoutRiskLabel = translateMetricLabel(get("burnout_risk_label_100") || burnoutRiskLevel);
   const burnoutZone = get("burnout_zone");
 
   // ── Clarity / confidence ──
   const patternClarityLevel = get("pattern_clarity_level");
   const patternConfidenceFinal = get("pattern_confidence_final");
-  const burnoutDisplayName = firstNonEmpty(
-    get("burnout_display_name"),
-    "نشانه‌ی فشار فرساینده"
+  const burnoutDisplayName = translateMetricLabel(
+    firstNonEmpty(get("burnout_display_name"), "نشانه فشار طولانی‌مدت و کمبود استراحت")
   );
 
   const stressGaugeColor = stressZone ? zoneColor(stressZone) : scoreColor(stressLoadScore);
@@ -811,9 +902,9 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
 
   const needMap: [string, string][] = [
     ["ارتباط", "gap_conn"],
-    ["خودمختاری", "gap_auto"],
-    ["شایستگی", "gap_comp"],
-    ["قدردانی", "gap_rec"],
+    ["اختیار", "gap_auto"],
+    ["توانمندی", "gap_comp"],
+    ["دیده‌شدن / قدردانی", "gap_rec"],
     ["معنا", "gap_mean"],
     ["امنیت", "gap_sec"],
     ["رشد", "gap_grow"],
@@ -821,9 +912,9 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
 
   const resMap: [string, string][] = [
     ["توان مقابله", "r_int_score"],
-    ["جسمی", "r_phy_score"],
-    ["اجتماعی", "r_soc_score"],
-    ["ساختاری", "r_str_score"],
+    ["انرژی بدنی", "r_phy_score"],
+    ["حمایت اطرافیان", "r_soc_score"],
+    ["نظم روزمره", "r_str_score"],
     ["معنا", "r_mean_score"],
   ];
 
@@ -865,20 +956,20 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
 
   // ── Breakdown bars ──
   const stressBreakdown: [string, string][] = [
-    ["بار مطالبات", "stress_demand_100"],
-    ["فشار ارزیابی", "stress_appraisal_100"],
-    ["بار نشانه‌ها", "stress_symptom_100"],
-    ["اثر کارکردی", "stress_function_100"],
-    ["تحلیل منابع", "stress_resource_depletion_100"],
-    ["خطر تداوم", "stress_duration_100"],
+    ["سنگینی مسئولیت‌ها", "stress_demand_100"],
+    ["فشار ذهنی و نگرانی", "stress_appraisal_100"],
+    ["نشانه‌های فشار", "stress_symptom_100"],
+    ["اثر روی زندگی روزمره", "stress_function_100"],
+    ["فشار ناشی از کمبود منابع", "stress_resource_depletion_100"],
+    ["ریسک ادامه‌دار شدن", "stress_duration_100"],
   ];
   const burnoutBreakdown: [string, string][] = [
-    ["فرسودگی", "burnout_exhaustion_100"],
-    ["کمبود بازیابی", "burnout_recovery_deficit_100"],
-    ["اثر کارکردی", "burnout_function_100"],
-    ["خطر تداوم", "burnout_duration_100"],
-    ["فشار مطالبات", "burnout_demand_100"],
-    ["ناترازی تلاش/پاداش", "burnout_control_reward_100"],
+    ["خستگی فرسایشی", "burnout_exhaustion_100"],
+    ["کمبود استراحت واقعی", "burnout_recovery_deficit_100"],
+    ["اثر روی زندگی روزمره", "burnout_function_100"],
+    ["ریسک ادامه‌دار شدن", "burnout_duration_100"],
+    ["سنگینی مسئولیت‌ها", "burnout_demand_100"],
+    ["تلاش زیاد، پاداش کم", "burnout_control_reward_100"],
   ];
 
   const showScores = stressLoadScore > 0 || burnoutRiskScore > 0;
@@ -940,19 +1031,19 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
           <div className="r-hero-meta">
             {roleContext && (
               <span className="r-meta-chip">
-                <span>نقش</span>
+                <span>نقش:</span>
                 {roleContext}
               </span>
             )}
             {ageGroup && (
               <span className="r-meta-chip">
-                <span>سن</span>
-                {ageGroup}
+                <span>سن:</span>
+                {formatAgeGroup(ageGroup)}
               </span>
             )}
             {safeGoal && (
               <span className="r-meta-chip">
-                <span>هدف</span>
+                <span>هدف:</span>
                 {safeGoal}
               </span>
             )}
@@ -975,7 +1066,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
                     }
                   >
                     {isLowRecharge && <span style={{ marginLeft: 4 }}>⚠️</span>}
-                    <span>شارژ مجدد</span>
+                    <span>استراحت و جبران انرژی:</span>
                     {rechargeDisplay}
                   </span>
                 );
@@ -1002,7 +1093,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
                 if (!clarityLabel) return null;
                 return (
                   <span className="r-meta-chip">
-                    <span>وضوح الگو</span>
+                    <span>وضوح الگو:</span>
                     {clarityLabel}
                   </span>
                 );
@@ -1034,14 +1125,14 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
                       fontWeight: 600,
                     }}
                   >
-                    تحلیل منابع — محرک اصلی
+                    فشار ناشی از کمبود منابع — محرک اصلی
                   </span>
                 );
               return null;
             })()}
             {pressureSources && (
               <span className="r-meta-chip">
-                <span>منبع فشار</span>
+                <span>منبع فشار:</span>
                 {pressureSources}
               </span>
             )}
@@ -1071,7 +1162,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
           {showScores && (
             <div className="r-scores-row">
               <div className="r-score-card">
-                <div className="r-score-label"><Term label="بار استرس فعلی" /></div>
+                <div className="r-score-label"><Term label="میزان فشار فعلی" /></div>
                 <div className="r-gauge-wrap">
                   <ArcGauge score={stressLoadScore} color={stressGaugeColor} />
                   <div className="r-gauge-text">
@@ -1116,8 +1207,8 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       {/* ── SUMMARY ── */}
       <section className="r-section">
         <div className="r-container">
-          <div className="r-eyebrow">تصویر شما</div>
-          <h2 className="r-section-title r-serif">این نتیجه چه می‌گوید</h2>
+          <div className="r-eyebrow">خلاصه وضعیت شما</div>
+          <h2 className="r-section-title r-serif">این نتیجه چه چیزی را نشان می‌دهد؟</h2>
           {mirrorSentence && (
             <p
               style={{
@@ -1162,8 +1253,8 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       {(aiMechanism || aiWhyItMatters || aiMaintenanceLoop) && (
         <section className="r-section">
           <div className="r-container">
-            <div className="r-eyebrow">الگو</div>
-            <h2 className="r-section-title r-serif">چه اتفاقی می‌افتد و چرا مهم است</h2>
+            <div className="r-eyebrow">چرخه فشار</div>
+            <h2 className="r-section-title r-serif">چه می‌شود و چرا مهم است؟</h2>
             {aiMechanism && <p className="r-prose">{aiMechanism}</p>}
             {aiWhyItMatters && (
               <p className="r-prose" style={{ marginTop: 16 }}>
@@ -1184,7 +1275,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       {hasNeedData && (
         <section className="r-section">
           <div className="r-container">
-            <div className="r-eyebrow">نقشه‌ی درونی شما</div>
+            <div className="r-eyebrow">نیازها و منابع شما</div>
             <h2 className="r-section-title r-serif">نیازها و منابع</h2>
             {aiMainNeedExplanation && <p className="r-prose">{aiMainNeedExplanation}</p>}
             {aiResourceInterpretation && (
@@ -1195,8 +1286,8 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
             <div className="r-bar-grid" style={{ marginTop: 32 }}>
               <div>
                 <div className="r-breakdown-title">
-                  <Term label="شکاف نیازها" /> &nbsp;
-                  <span style={{ fontWeight: 400, opacity: 0.6 }}>بیشتر = برآورده‌نشده‌تر</span>
+                  نیازهای کمتر تأمین‌شده &nbsp;
+                  <span style={{ fontWeight: 400, opacity: 0.6 }}>عدد بالاتر یعنی نیاز بیشتر</span>
                 </div>
                 {needMap.map(([label, key]) => {
                   const v = safeNum(f[key]);
@@ -1206,8 +1297,8 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
               </div>
               <div>
                 <div className="r-breakdown-title">
-                  <Term label="منابع" /> &nbsp;
-                  <span style={{ fontWeight: 400, opacity: 0.6 }}>کمتر = کم‌دسترس‌تر</span>
+                  منابع حمایتی &nbsp;
+                  <span style={{ fontWeight: 400, opacity: 0.6 }}>عدد پایین‌تر یعنی دسترسی کمتر</span>
                 </div>
                 {resMap.map(([label, key]) => {
                   const v = safeNum(f[key]);
@@ -1257,8 +1348,8 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       {(hasRecs || hasFallbackRecs) && (
         <section className="r-section">
           <div className="r-container">
-            <div className="r-eyebrow">برنامه‌ی اقدام شما</div>
-            <h2 className="r-section-title r-serif">سه گام مبتنی بر شواهد</h2>
+            <div className="r-eyebrow">پیشنهادهای عملی شما</div>
+            <h2 className="r-section-title r-serif">سه قدم ساده و مبتنی بر شواهد</h2>
             {aiInterventionSummary && <p className="r-prose">{aiInterventionSummary}</p>}
             {hasRecs ? (
               <div className="r-reco-stack">
@@ -1312,7 +1403,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       {hasDeeper && (
         <section className="r-section">
           <div className="r-container">
-            <div className="r-eyebrow">لایه‌ی روایت</div>
+            <div className="r-eyebrow">زمینه شخصی شما</div>
             <h2 className="r-section-title r-serif">{aiDeeperTitle}</h2>
             <div className="r-context-card">
               <p className="r-prose">{aiDeeperText}</p>
@@ -1326,12 +1417,12 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       {aiDurationNote && (
         <section className="r-section">
           <div className="r-container">
-            <div className="r-eyebrow">مدت و فشار فرساینده</div>
-            <h2 className="r-section-title r-serif">تصویر بلندمدت‌تر</h2>
+            <div className="r-eyebrow">فشار در طول زمان</div>
+            <h2 className="r-section-title r-serif">نگاه بلندمدت‌تر</h2>
             <p className="r-prose">{aiDurationNote}</p>
             <div className="r-breakdown-cols">
               <div>
-                <div className="r-breakdown-title">اجزای بار استرس</div>
+                <div className="r-breakdown-title">اجزای فشار فعلی</div>
                 {stressBreakdown.map(([label, key]) => {
                   const v = safeNum(f[key]);
                   const color = v >= 70 ? "#B91C1C" : v >= 50 ? "#B45309" : "#6B7280";
@@ -1339,7 +1430,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
                 })}
               </div>
               <div>
-                <div className="r-breakdown-title">اجزای فشار فرساینده</div>
+                <div className="r-breakdown-title">اجزای فشار طولانی‌مدت</div>
                 {burnoutBreakdown.map(([label, key]) => {
                   const v = safeNum(f[key]);
                   const color = v >= 70 ? "#7C3AED" : v >= 50 ? "#8B5CF6" : "#A8A29E";
@@ -1376,7 +1467,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       {/* ── REFLECTION ── */}
       <section className="r-section">
         <div className="r-container">
-          <div className="r-eyebrow">برای تأمل</div>
+          <div className="r-eyebrow">یک سؤال برای فکر کردن</div>
           <div className="r-reflection-box">
             <p className="r-reflection-q r-serif">{safeReflection}</p>
           </div>
@@ -1405,7 +1496,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
               {dateRaw ? formatReportDate(dateRaw) : ""}
             </div>
             <div className="r-footer-note">
-              {aiGrounding || "ارزیابی غیرکلینیکی استرس و تاب‌آوری."}
+              این گزارش یک خودارزیابی غیرتشخیصی استرس و تاب‌آوری است، نه ارزیابی پزشکی یا روان‌پزشکی.
             </div>
           </div>
         </div>
