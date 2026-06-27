@@ -509,6 +509,30 @@ function ErrorView({ message }: { message: string }) {
   );
 }
 
+// Polite placeholder shown in place of any input-dependent section when the
+// submission is flagged low-validity (output_mode === "LOW_VALIDITY"). The
+// report keeps its full professional structure; only the parts that need
+// trustworthy answers are replaced by this notice.
+function GatedNotice() {
+  return (
+    <div
+      style={{
+        padding: "18px 22px",
+        border: "1px solid #E7E5E0",
+        borderRadius: 12,
+        background: "#FAF8F4",
+        color: "#78716C",
+        fontSize: 14,
+        lineHeight: 1.9,
+      }}
+    >
+      این بخش از گزارش نمایش داده نمی‌شود، چون پاسخ‌های این بار برای تفسیر مطمئن کمی شتاب‌زده یا
+      ناهماهنگ بوده‌اند. لطفاً پرسش‌نامه را با کمی حوصله‌ی بیشتر دوباره پر کنید تا این بخش نمایش
+      داده شود.
+    </div>
+  );
+}
+
 function ArcGauge({ score, color }: { score: number; color: string }) {
   return (
     <svg width="72" height="72" viewBox="0 0 120 120" style={{ flexShrink: 0 }}>
@@ -810,6 +834,13 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
     ["MEDIUM", "LOW", "INVALID"].includes(responseQualityLevel) ||
     noStressContradiction === "YES";
 
+  // Low-validity gate: when output_mode flags the result as untrustworthy,
+  // input-dependent sections are replaced by a polite placeholder. The report
+  // keeps its full structure; safe sections (gauges, identity chips, the quality
+  // warning, the summary, the closing question and disclaimer) still render.
+  const outputMode = get("output_mode").toUpperCase();
+  const isLowValidity = outputMode === "LOW_VALIDITY";
+
   // ── Profile fields ──
   const heroTitle =
     stressProfileTitle ||
@@ -918,8 +949,14 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
     ["معنا", "r_mean_score"],
   ];
 
+  // A need column that is entirely flat (e.g. every gap = 0) is a noise
+  // fingerprint, not a real signal — so suppress the whole needs/resources
+  // panel in that case, regardless of validity flag.
+  const needVals = needMap.map(([, k]) => safeNum(f[k]));
+  const resVals = resMap.map(([, k]) => safeNum(f[k]));
+  const needsAllFlat = needVals.every((v) => v === needVals[0]);
   const hasNeedData =
-    needMap.some(([, k]) => safeNum(f[k]) > 0) || resMap.some(([, k]) => safeNum(f[k]) > 0);
+    (!needsAllFlat && needVals.some((v) => v > 0)) || resVals.some((v) => v > 0);
 
   // ── Domains ──
   const domains: [string, string, string][] = [
@@ -1250,69 +1287,81 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       </section>
 
       {/* ── MECHANISM ── */}
-      {(aiMechanism || aiWhyItMatters || aiMaintenanceLoop) && (
+      {(isLowValidity || aiMechanism || aiWhyItMatters || aiMaintenanceLoop) && (
         <section className="r-section">
           <div className="r-container">
             <div className="r-eyebrow">چرخه فشار</div>
             <h2 className="r-section-title r-serif">چه می‌شود و چرا مهم است؟</h2>
-            {aiMechanism && <p className="r-prose">{aiMechanism}</p>}
-            {aiWhyItMatters && (
-              <p className="r-prose" style={{ marginTop: 16 }}>
-                {aiWhyItMatters}
-              </p>
-            )}
-            {aiMaintenanceLoop && (
-              <div className="r-loop-box">
-                <div className="r-loop-label">این چرخه چگونه خود را پایدار نگه می‌دارد</div>
-                <p className="r-loop-text">{aiMaintenanceLoop}</p>
-              </div>
+            {isLowValidity ? (
+              <GatedNotice />
+            ) : (
+              <>
+                {aiMechanism && <p className="r-prose">{aiMechanism}</p>}
+                {aiWhyItMatters && (
+                  <p className="r-prose" style={{ marginTop: 16 }}>
+                    {aiWhyItMatters}
+                  </p>
+                )}
+                {aiMaintenanceLoop && (
+                  <div className="r-loop-box">
+                    <div className="r-loop-label">این چرخه چگونه خود را پایدار نگه می‌دارد</div>
+                    <p className="r-loop-text">{aiMaintenanceLoop}</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </section>
       )}
 
       {/* ── NEEDS & RESOURCES ── */}
-      {hasNeedData && (
+      {(isLowValidity || hasNeedData) && (
         <section className="r-section">
           <div className="r-container">
             <div className="r-eyebrow">نیازها و منابع شما</div>
             <h2 className="r-section-title r-serif">نیازها و منابع</h2>
-            {aiMainNeedExplanation && <p className="r-prose">{aiMainNeedExplanation}</p>}
-            {aiResourceInterpretation && (
-              <p className="r-prose" style={{ marginTop: 12 }}>
-                {aiResourceInterpretation}
-              </p>
+            {isLowValidity ? (
+              <GatedNotice />
+            ) : (
+              <>
+                {aiMainNeedExplanation && <p className="r-prose">{aiMainNeedExplanation}</p>}
+                {aiResourceInterpretation && (
+                  <p className="r-prose" style={{ marginTop: 12 }}>
+                    {aiResourceInterpretation}
+                  </p>
+                )}
+                <div className="r-bar-grid" style={{ marginTop: 32 }}>
+                  <div>
+                    <div className="r-breakdown-title">
+                      نیازهای کمتر تأمین‌شده &nbsp;
+                      <span style={{ fontWeight: 400, opacity: 0.6 }}>عدد بالاتر یعنی نیاز بیشتر</span>
+                    </div>
+                    {needMap.map(([label, key]) => {
+                      const v = safeNum(f[key]);
+                      const color = needGapColor(v);
+                      return <BarRow key={key} label={label} value={v} max={4} color={color} />;
+                    })}
+                  </div>
+                  <div>
+                    <div className="r-breakdown-title">
+                      منابع حمایتی &nbsp;
+                      <span style={{ fontWeight: 400, opacity: 0.6 }}>عدد پایین‌تر یعنی دسترسی کمتر</span>
+                    </div>
+                    {resMap.map(([label, key]) => {
+                      const v = safeNum(f[key]);
+                      const color = resourceBarColor(v);
+                      return <BarRow key={key} label={label} value={v} max={5} color={color} />;
+                    })}
+                  </div>
+                </div>
+              </>
             )}
-            <div className="r-bar-grid" style={{ marginTop: 32 }}>
-              <div>
-                <div className="r-breakdown-title">
-                  نیازهای کمتر تأمین‌شده &nbsp;
-                  <span style={{ fontWeight: 400, opacity: 0.6 }}>عدد بالاتر یعنی نیاز بیشتر</span>
-                </div>
-                {needMap.map(([label, key]) => {
-                  const v = safeNum(f[key]);
-                  const color = needGapColor(v);
-                  return <BarRow key={key} label={label} value={v} max={4} color={color} />;
-                })}
-              </div>
-              <div>
-                <div className="r-breakdown-title">
-                  منابع حمایتی &nbsp;
-                  <span style={{ fontWeight: 400, opacity: 0.6 }}>عدد پایین‌تر یعنی دسترسی کمتر</span>
-                </div>
-                {resMap.map(([label, key]) => {
-                  const v = safeNum(f[key]);
-                  const color = resourceBarColor(v);
-                  return <BarRow key={key} label={label} value={v} max={5} color={color} />;
-                })}
-              </div>
-            </div>
           </div>
         </section>
       )}
 
       {/* ── FUNCTIONAL IMPACT ── */}
-      {hasDomains && shouldShowDailyExperience(f) && (
+      {hasDomains && !isLowValidity && shouldShowDailyExperience(f) && (
         <section className="r-section">
           <div className="r-container">
             <div className="r-eyebrow">تجربه‌ی روزمره</div>
@@ -1327,7 +1376,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       )}
 
       {/* ── LOW-STRESS MAINTENANCE BLOCK ── */}
-      {!shouldShowDailyExperience(f) && isLowStressMaintenance && (
+      {!shouldShowDailyExperience(f) && isLowStressMaintenance && !isLowValidity && (
         <section className="r-section">
           <div className="r-container">
             <div className="r-eyebrow">کانون حفظ وضعیت</div>
@@ -1345,62 +1394,68 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       )}
 
       {/* ── RECOMMENDATIONS ── */}
-      {(hasRecs || hasFallbackRecs) && (
+      {(isLowValidity || hasRecs || hasFallbackRecs) && (
         <section className="r-section">
           <div className="r-container">
             <div className="r-eyebrow">پیشنهادهای عملی شما</div>
             <h2 className="r-section-title r-serif">سه قدم ساده و مبتنی بر شواهد</h2>
-            {aiInterventionSummary && <p className="r-prose">{aiInterventionSummary}</p>}
-            {hasRecs ? (
-              <div className="r-reco-stack">
-                {recs.map((r) => (
-                  <RecoCard key={r.n} {...r} />
-                ))}
-              </div>
+            {isLowValidity ? (
+              <GatedNotice />
             ) : (
-              <div className="r-reco-stack">
-                {[get("action_1"), get("action_2"), get("action_3")]
-                  .filter(Boolean)
-                  .map((a, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        background: "#fff",
-                        border: "1px solid #E7E5E0",
-                        borderRadius: 14,
-                        padding: "20px 24px",
-                        display: "flex",
-                        gap: 14,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: "50%",
-                          background: `${pat.color}18`,
-                          color: pat.color,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontFamily: "Vazirmatn, Georgia, serif",
-                          fontSize: 14,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {i + 1}
-                      </div>
-                      <div style={{ fontSize: 14, lineHeight: 1.85, color: "#57534E" }}>{a}</div>
-                    </div>
-                  ))}
-              </div>
+              <>
+                {aiInterventionSummary && <p className="r-prose">{aiInterventionSummary}</p>}
+                {hasRecs ? (
+                  <div className="r-reco-stack">
+                    {recs.map((r) => (
+                      <RecoCard key={r.n} {...r} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="r-reco-stack">
+                    {[get("action_1"), get("action_2"), get("action_3")]
+                      .filter(Boolean)
+                      .map((a, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            background: "#fff",
+                            border: "1px solid #E7E5E0",
+                            borderRadius: 14,
+                            padding: "20px 24px",
+                            display: "flex",
+                            gap: 14,
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: "50%",
+                              background: `${pat.color}18`,
+                              color: pat.color,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontFamily: "Vazirmatn, Georgia, serif",
+                              fontSize: 14,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {i + 1}
+                          </div>
+                          <div style={{ fontSize: 14, lineHeight: 1.85, color: "#57534E" }}>{a}</div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </section>
       )}
 
       {/* ── DEEPER CONTEXT ── */}
-      {hasDeeper && (
+      {hasDeeper && !isLowValidity && (
         <section className="r-section">
           <div className="r-container">
             <div className="r-eyebrow">زمینه شخصی شما</div>
@@ -1414,30 +1469,36 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
       )}
 
       {/* ── DURATION & BURNOUT ── */}
-      {aiDurationNote && (
+      {(isLowValidity || aiDurationNote) && (
         <section className="r-section">
           <div className="r-container">
             <div className="r-eyebrow">فشار در طول زمان</div>
             <h2 className="r-section-title r-serif">نگاه بلندمدت‌تر</h2>
-            <p className="r-prose">{aiDurationNote}</p>
-            <div className="r-breakdown-cols">
-              <div>
-                <div className="r-breakdown-title">اجزای فشار فعلی</div>
-                {stressBreakdown.map(([label, key]) => {
-                  const v = safeNum(f[key]);
-                  const color = v >= 70 ? "#B91C1C" : v >= 50 ? "#B45309" : "#6B7280";
-                  return <BarRow key={key} label={label} value={v} max={100} color={color} />;
-                })}
-              </div>
-              <div>
-                <div className="r-breakdown-title">اجزای فشار طولانی‌مدت</div>
-                {burnoutBreakdown.map(([label, key]) => {
-                  const v = safeNum(f[key]);
-                  const color = v >= 70 ? "#7C3AED" : v >= 50 ? "#8B5CF6" : "#A8A29E";
-                  return <BarRow key={key} label={label} value={v} max={100} color={color} />;
-                })}
-              </div>
-            </div>
+            {isLowValidity ? (
+              <GatedNotice />
+            ) : (
+              <>
+                <p className="r-prose">{aiDurationNote}</p>
+                <div className="r-breakdown-cols">
+                  <div>
+                    <div className="r-breakdown-title">اجزای فشار فعلی</div>
+                    {stressBreakdown.map(([label, key]) => {
+                      const v = safeNum(f[key]);
+                      const color = v >= 70 ? "#B91C1C" : v >= 50 ? "#B45309" : "#6B7280";
+                      return <BarRow key={key} label={label} value={v} max={100} color={color} />;
+                    })}
+                  </div>
+                  <div>
+                    <div className="r-breakdown-title">اجزای فشار طولانی‌مدت</div>
+                    {burnoutBreakdown.map(([label, key]) => {
+                      const v = safeNum(f[key]);
+                      const color = v >= 70 ? "#7C3AED" : v >= 50 ? "#8B5CF6" : "#A8A29E";
+                      return <BarRow key={key} label={label} value={v} max={100} color={color} />;
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </section>
       )}
