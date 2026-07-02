@@ -950,6 +950,13 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
   const closingStatement = get("closing_statement");
 
   // ── Scores ──
+  // NOTE: safeNum() collapses "field missing" and "field is genuinely 0" into the
+  // same value, so presence is checked against the raw field before formatting —
+  // otherwise a real 0 score (e.g. a healthy/maintenance result) gets hidden or
+  // shown as a placeholder dash instead of the actual number.
+  const hasField = (key: string) => f[key] !== undefined && f[key] !== null && f[key] !== "";
+  const hasStressLoadScore = hasField("stress_load_score_100");
+  const hasBurnoutRiskScore = hasField("burnout_risk_score_100");
   const stressLoadScore = safeNum(f["stress_load_score_100"]);
   const stressLoadLevel = get("stress_load_level_100");
   const stressLoadLabel = translateMetricLabel(get("stress_load_label_100") || stressLoadLevel);
@@ -1051,7 +1058,7 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
     ["تلاش زیاد، پاداش کم", "burnout_control_reward_100"],
   ];
 
-  const showScores = stressLoadScore > 0 || burnoutRiskScore > 0;
+  const showScores = hasStressLoadScore || hasBurnoutRiskScore;
   const hasDeeper = !!(aiDeeperTitle && aiDeeperText);
 
   const safeReflection = aiReflection?.trim()
@@ -1245,7 +1252,9 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
                 <div className="r-gauge-wrap">
                   <ArcGauge score={stressLoadScore} color={stressGaugeColor} />
                   <div className="r-gauge-text">
-                    <span className="r-gauge-num r-serif">{stressLoadScore || "—"}</span>
+                    <span className="r-gauge-num r-serif">
+                      {hasStressLoadScore ? stressLoadScore : "—"}
+                    </span>
                     <span className="r-gauge-level" style={{ color: stressGaugeColor }}>
                       {stressLoadLabel}
                     </span>
@@ -1258,7 +1267,9 @@ export default function ResultsPage({ rid }: { rid: string | null }) {
                 <div className="r-gauge-wrap">
                   <ArcGauge score={burnoutRiskScore} color={burnoutGaugeColor} />
                   <div className="r-gauge-text">
-                    <span className="r-gauge-num r-serif">{burnoutRiskScore || "—"}</span>
+                    <span className="r-gauge-num r-serif">
+                      {hasBurnoutRiskScore ? burnoutRiskScore : "—"}
+                    </span>
                     <span className="r-gauge-level" style={{ color: burnoutGaugeColor }}>
                       {burnoutRiskLabel}
                     </span>
